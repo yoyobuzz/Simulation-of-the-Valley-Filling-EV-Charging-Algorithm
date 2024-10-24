@@ -3,271 +3,264 @@ import cvxpy as cp
 from typing import List, Tuple, Dict, Set
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-import random
+from collections import defaultdict
 
 @dataclass
 class EVState:
     """Class to track EV state"""
-    is_active: bool
+    arrival_time: int
     deadline: int
-    remaining_energy: float
+    required_energy: float
     charging_profile: np.ndarray
-    r_max: float
-    previous_rate: float  # Store previous iteration's rate
+    is_active: bool = False
+    total_charged: float = 0.0
 
 class RealTimeOptimalDecentralizedCharging:
     def __init__(
         self,
-        T: int,
-        D: np.ndarray,
-        gamma: float,
-        K: int,  # Number of iterations per time slot
-        r_max: float = 3.3,
-        epsilon: float = 1e-3
+        T: int,  # Total time horizon
+        D: np.ndarray,  # Base load profile
+        r_min: float = 0.0,  # Minimum charging rate
+        r_max: float = 3.3,  # Maximum charging rate
+        K: int = 100,  # Number of iterations per time slot
+        alpha: float = 0.5,  # Step size parameter
+        beta: float = 2.0,  # Lipschitz constant
+        tolerance: float = 1e-3
     ):
         self.T = T
         self.D = D
-        self.gamma = gamma
-        self.K = K
+        self.r_min = r_min
         self.r_max = r_max
-        self.epsilon = epsilon
+        self.K = K
+        self.beta = beta
+        self.tolerance = tolerance
         
-        # State tracking
+        # Pick gamma parameter satisfying 0 < gamma < 1/(N*beta)
+        self.gamma = alpha / beta  # Will be adjusted based on active EVs
+        
+        # Dictionary to store EV states
+        self.ev_states: Dict[int, EVState] = {}
+        self.active_evs: Set[int] = set()
         self.current_time = 0
-        self.active_evs: Dict[int, EVState] = {}
-        self.charging_history: List[Dict[int, float]] = []
         
-    def activate_ev(
-        self,
-        ev_id: int,
-        deadline: int,
-        energy_required: float
-    ):
-        """Activate a new EV for charging"""
-        if deadline <= self.current_time:
-            print(f"Warning: EV {ev_id} deadline {deadline} not after current time {self.current_time}")
-            return False
-            
-        profile = np.zeros(self.T)
+        # Store results for plotting
+        self.total_load_history = []
+        self.active_ev_counts = []
         
-        self.active_evs[ev_id] = EVState(
-            is_active=True,
-            deadline=deadline,
-            remaining_energy=energy_required,
-            charging_profile=profile,
-            r_max=self.r_max,
-            previous_rate=0.0
-        )
-        return True
-        
-    def calculate_control_signal(self, current_rates: Dict[int, float]) -> float:
-        """Calculate control signal λ(t) for current time slot"""
-        if not self.active_evs:
-            return 0.0
-            
-        total_charging = sum(current_rates.values())
-        return (self.D[self.current_time] - total_charging) / len(self.active_evs)
+    def utility_prime(self, x: float) -> float:
+        """Derivative of utility function U(x) = 0.5 * x^2"""
+        return x
     
-    def optimize_ev_rate(
+    def add_ev(
         self,
         ev_id: int,
-        lambda_t: float,
+        arrival_time: int,
+        deadline: int,
+        required_energy: float
+    ):
+        """Add a new EV to the system"""
+        self.ev_states[ev_id] = EVState(
+            arrival_time=arrival_time,
+            deadline=deadline,
+            required_energy=required_energy,
+            charging_profile=np.zeros(self.T)
+        )
+    
+    def update_active_evs(self, t: int):
+        """Update the set of active EVs at time slot t"""
+        # Remove completed or deadline-reached EVs
+        to_remove = set()
+        for ev_id in self.active_evs:
+            ev = self.ev_states[ev_id]
+            if (ev.total_charged >= ev.required_energy or 
+                t >= ev.deadline or 
+                not ev.is_active):
+                to_remove.add(ev_id)
+                ev.is_active = False
+        
+        self.active_evs -= to_remove
+        
+        # Add newly arrived EVs
+        for ev_id, ev in self.ev_states.items():
+            if (t >= ev.arrival_time and 
+                t < ev.deadline and 
+                ev.total_charged < ev.required_energy and 
+                not ev.is_active):
+                self.active_evs.add(ev_id)
+                ev.is_active = True
+    
+    def calculate_control_signal(self, t: int, r_sum: float) -> float:
+        """Calculate control signal p^k using utility function derivative"""
+        total_load = self.D[t] + r_sum
+        n_active = len(self.active_evs) if len(self.active_evs) > 0 else 1
+        self.gamma = 0.5 / (n_active * self.beta)  # Update gamma based on active EVs
+        return self.gamma * self.utility_prime(total_load)
+    
+    def solve_ev_optimization(
+        self,
+        ev_id: int,
+        t: int,
+        control_signal: float,
         previous_rate: float
     ) -> float:
-        """Optimize charging rate for single EV at current time slot"""
-        ev = self.active_evs[ev_id]
+        """Solve single EV optimization problem for current time slot"""
+        ev = self.ev_states[ev_id]
         
-        # Define variable for current time slot
+        # Calculate remaining energy needed
+        remaining_energy = ev.required_energy - ev.total_charged
+        remaining_time = ev.deadline - t
+        
+        if remaining_time <= 0:
+            return 0.0
+        
+        # Average rate needed to meet requirement
+        min_required_rate = remaining_energy / remaining_time if remaining_time > 0 else 0
+        
+        # Define optimization variable
         r = cp.Variable(1)
         
-        # Following Algorithm 3's optimization objective
+        # Objective: p^k * r + (1/2)||r - r_prev||^2
         objective = cp.Minimize(
-            0.5 * cp.square(r[0] - previous_rate) + lambda_t * r[0]
+            control_signal * r[0] + 0.5 * cp.sum_squares(r - previous_rate)
         )
         
-        # Calculate minimum required rate to meet deadline
-        remaining_time = ev.deadline - self.current_time
-        if remaining_time > 0:
-            min_rate = max(0, ev.remaining_energy / remaining_time)
-        else:
-            min_rate = 0
-        
+        # Constraints
         constraints = [
-            r >= min_rate,
-            r <= min(ev.r_max, ev.remaining_energy)
+            r >= max(self.r_min, min_required_rate),  # Must meet minimum required rate
+            r <= min(self.r_max, remaining_energy)     # Cannot charge more than needed
         ]
         
-        # Solve optimization
+        # Solve the problem
         problem = cp.Problem(objective, constraints)
         try:
             problem.solve()
             if problem.status == 'optimal':
-                return float(r.value)
-            return previous_rate
-        except Exception as e:
-            print(f"Optimization failed for EV {ev_id}: {e}")
+                # Safe conversion of scalar value
+                return float(r.value.item())
+            else:
+                return previous_rate
+        except:
             return previous_rate
     
-    def step_time(self):
-        """Process one time slot"""
-        if self.current_time >= self.T:
-            return False
+    def run_time_slot(self, t: int) -> Dict[int, float]:
+        """Execute one time slot of the RTODC algorithm"""
+        self.update_active_evs(t)
         
-        # Initialize current rates dictionary
-        current_rates = {ev_id: 0.0 for ev_id in self.active_evs}
+        if not self.active_evs:
+            return {}
         
-        # Store previous rates
-        for ev_id, ev in self.active_evs.items():
-            if self.charging_history and ev_id in self.charging_history[-1]:
-                ev.previous_rate = self.charging_history[-1][ev_id]
-            else:
-                ev.previous_rate = 0.0
-            current_rates[ev_id] = ev.previous_rate
+        # Initialize charging rates for this time slot
+        current_rates = {
+            ev_id: self.ev_states[ev_id].charging_profile[t-1] if t > 0 else 0.0
+            for ev_id in self.active_evs
+        }
         
-        # Execute K iterations of optimization
+        # Iteration loop
         for k in range(self.K):
+            # Calculate total charging rate
+            r_sum = sum(current_rates.values())
+            
             # Calculate control signal
-            lambda_t = self.calculate_control_signal(current_rates)
-            # print(f"Time {self.current_time}, Iteration {k}, Control signal: {lambda_t:.4f}")
+            control_signal = self.calculate_control_signal(t, r_sum)
             
-            if abs(lambda_t) < self.epsilon:
-                # Small control signal - apply direct update
-                for ev_id in self.active_evs:
-                    current_rate = current_rates[ev_id]
-                    new_rate = current_rate + self.gamma * lambda_t
-                    # Ensure rate stays within bounds
-                    ev = self.active_evs[ev_id]
-                    new_rate = max(0, min(new_rate, ev.r_max, ev.remaining_energy))
-                    current_rates[ev_id] = new_rate
-            else:
-                # Optimize rates
-                old_rates = current_rates.copy()
-                for ev_id, ev in self.active_evs.items():
-                    new_rate = self.optimize_ev_rate(
-                        ev_id,
-                        lambda_t,
-                        old_rates[ev_id]
-                    )
-                    current_rates[ev_id] = new_rate
+            # Update each active EV's charging rate
+            new_rates = {}
+            for ev_id in self.active_evs:
+                new_rate = self.solve_ev_optimization(
+                    ev_id,
+                    t,
+                    control_signal,
+                    current_rates[ev_id]
+                )
+                new_rates[ev_id] = new_rate
             
-            # # Print some rates for debugging
-            # print(f"Sample rates after iteration {k}: {dict(list(current_rates.items())[:3])}")
+            # Check convergence
+            rate_changes = [abs(new_rates[ev_id] - current_rates[ev_id]) 
+                          for ev_id in self.active_evs]
+            if max(rate_changes) < self.tolerance:
+                break
+            
+            # Update rates
+            current_rates = new_rates.copy()
         
-        # Update charging profiles and states
-        charging_decisions = {}
+        # Update EV states with final rates
         for ev_id, rate in current_rates.items():
-            ev = self.active_evs[ev_id]
-            ev.charging_profile[self.current_time] = rate
-            charging_decisions[ev_id] = rate
-            
-            # Update remaining energy
-            ev.remaining_energy -= rate
-            
-            # Check if EV should become inactive
-            if (ev.remaining_energy <= 0 or 
-                self.current_time >= ev.deadline):
-                ev.is_active = False
+            self.ev_states[ev_id].charging_profile[t] = rate
+            self.ev_states[ev_id].total_charged += rate
         
-        # Clean up inactive EVs
-        inactive_evs = [
-            ev_id for ev_id, ev in self.active_evs.items() 
-            if not ev.is_active
-        ]
-        for ev_id in inactive_evs:
-            self.deactivate_ev(ev_id)
-        
-        self.charging_history.append(charging_decisions)
-        self.current_time += 1
-        return True
+        return current_rates
     
-    def deactivate_ev(self, ev_id: int):
-        """Deactivate an EV"""
-        if ev_id in self.active_evs:
-            del self.active_evs[ev_id]
-
-    def run_simulation(
-        self,
-        arrival_schedule: List[Tuple[int, int, float, int]]
-    ):
-        """
-        Run full simulation with given arrival schedule
-        arrival_schedule: List of (time, ev_id, energy_required, deadline)
-        """
-        arrival_schedule.sort(key=lambda x: x[0])
-        
-        while self.current_time < self.T:
-            # Check for new arrivals
-            for arrival in arrival_schedule:
-                arrival_time, ev_id, energy, deadline = arrival
-                if arrival_time == self.current_time:
-                    self.activate_ev(ev_id, deadline, energy)
+    def run(self):
+        """Run the complete RTODC algorithm"""
+        total_load = np.zeros(self.T)
+        for t in range(self.T):
+            self.current_time = t
+            rates = self.run_time_slot(t)
             
-            # Process time step
-            self.step_time()
+            # Store results for plotting
+            total_load[t] = self.D[t] + sum(rates.values())
+            self.total_load_history.append(total_load[t])
+            self.active_ev_counts.append(len(self.active_evs))
             
-            if self.current_time % 10 == 0:
-                print(f"\nProcessed time {self.current_time}")
-                print(f"Active EVs: {len(self.active_evs)}")
-                if self.charging_history:
-                    print(f"Total charging rate: {sum(self.charging_history[-1].values()):.2f}")
-        
-        return self.charging_history
+            # Print progress
+            if t % 10 == 0:
+                print(f"Time slot {t}: {len(self.active_evs)} active EVs")
     
     def plot_results(self):
-        """Plot simulation results"""
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+        """Plot the results of the optimization"""
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
         
-        # Calculate total load at each time step
-        total_loads = []
-        ev_charging_loads = []
-        for t in range(self.T):
-            if t < len(self.charging_history):
-                ev_load = sum(self.charging_history[t].values())
-            else:
-                ev_load = 0
-            total_loads.append(self.D[t] + ev_load)
-            ev_charging_loads.append(ev_load)
+        # Time labels
+        time_labels = []
+        current_hour = 20
+        current_minute = 0
+        for _ in range(self.T):
+            time_labels.append(f"{current_hour:02d}:{current_minute:02d}")
+            current_minute += 15
+            if current_minute >= 60:
+                current_minute = 0
+                current_hour += 1
+                if current_hour >= 24:
+                    current_hour = 0
         
-        # Plot loads
-        time_range = range(self.T)
-        ax1.plot(time_range, self.D, 'k-', label='Base Load')
-        ax1.plot(time_range, total_loads, 'r--', label='Total Load')
-        ax1.plot(time_range, ev_charging_loads, 'b:', label='EV Charging Load')
-        ax1.set_title('Load Profiles')
-        ax1.set_xlabel('Time Slot')
-        ax1.set_ylabel('Load (kW)')
-        ax1.legend()
+        # Plot 1: Individual EV charging profiles
+        for ev_id, ev in self.ev_states.items():
+            ax1.plot(time_labels, ev.charging_profile, 
+                    label=f'EV {ev_id}', alpha=0.5)
+        ax1.set_title('Individual EV Charging Profiles')
+        ax1.set_xlabel('Time')
+        ax1.set_ylabel('Charging Rate (kW)')
+        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         ax1.grid(True)
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
         
-        # Plot individual EV charging profiles
-        ev_profiles = {}
-        for t, decisions in enumerate(self.charging_history):
-            for ev_id, rate in decisions.items():
-                if ev_id not in ev_profiles:
-                    ev_profiles[ev_id] = np.zeros(self.T)
-                ev_profiles[ev_id][t] = rate
-        
-        for ev_id, profile in ev_profiles.items():
-            ax2.plot(time_range, profile, alpha=0.5, label=f'EV {ev_id}')
-        
-        ax2.set_title('Individual EV Charging Profiles')
-        ax2.set_xlabel('Time Slot')
-        ax2.set_ylabel('Charging Rate (kW)')
-        ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        # Plot 2: Total load profile
+        ax2.plot(time_labels, self.D, 'k-', label='Base Load', marker='o')
+        ax2.plot(time_labels, self.total_load_history, 'b--', 
+                label='Total Load')
+        ax2.set_title('Load Profiles')
+        ax2.set_xlabel('Time')
+        ax2.set_ylabel('Load (kW)')
+        ax2.legend()
         ax2.grid(True)
+        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
+        
+        # Plot 3: Number of active EVs
+        ax3.plot(time_labels, self.active_ev_counts)
+        ax3.set_title('Number of Active EVs')
+        ax3.set_xlabel('Time')
+        ax3.set_ylabel('Count')
+        ax3.grid(True)
         
         plt.tight_layout()
         plt.show()
-def run_example():
-    """Run example simulation of decentralized EV charging"""
-    import numpy as np
-    import random
-    import matplotlib.pyplot as plt
-    
-    # Parameters
+
+def run_rtodc_example():
+    """Run example simulation with RTODC"""
     T = 52  # 15-minute intervals from 20:00 to 06:30
+    np.random.seed(0)
     
-    # Base load profile (scaled)
+    # Base load profile (same as before)
     D = np.array([
         0.90, 0.90, 0.89, 0.88, 0.85,  # 20:00-21:00
         0.82, 0.78, 0.75, 0.70, 0.65,  # 21:00-22:00
@@ -282,76 +275,321 @@ def run_example():
         0.66, 0.65                      # 06:00-06:30
     ]) * 80
     
-    # Initialize algorithm with proper parameters
-    rtoc = RealTimeOptimalDecentralizedCharging(
+    # Initialize RTODC
+    rtodc = RealTimeOptimalDecentralizedCharging(
         T=T,
         D=D,
-        gamma=0.1,  # Changed from gamma to gamma
-        K=10,
-        r_max=3.3  # Maximum charging rate (kW)
+        r_max=3.3,
+        r_min=0.0,
+        K=100,
+        alpha=0.5,
+        beta=2.0,
+        tolerance=1e-6
     )
     
-    # Generate more realistic arrival schedule
+    # Add EVs with random arrival times
     N = 20  # Number of EVs
-    arrival_schedule = []
-    
-    # Different EV types with their typical battery capacities
-    ev_types = [
-        {"capacity": 40, "charging_rate": 3.3},  # Small EV
-        {"capacity": 60, "charging_rate": 3.3},  # Medium EV
-        {"capacity": 85, "charging_rate": 3.3}   # Large EV
-    ]
-    
     for i in range(N):
-        # Random arrival time in evening hours (20:00-23:00)
-        arrival_time = random.randint(0, 12)  # First 3 hours
+        # Random arrival time in first half of horizon
+        arrival_time = int(np.random.uniform(0, T//2))
+        # Deadline in second half of horizon
+        # deadline = np.random.randint(max(arrival_time + 10, T//2), T)
+        deadline = T
+        # Random energy requirement
+        required_energy = np.random.uniform(5, 25)
         
-        # Select random EV type
-        ev_type = random.choice(ev_types)
-        
-        # Calculate realistic energy requirement based on EV type
-        # Assume EVs arrive with 20-40% remaining charge
-        remaining_charge = random.uniform(0.2, 0.4)
-        energy_needed = ev_type["capacity"] * (0.8 - remaining_charge)  # Charge up to 80%
-        
-        # Set deadline based on typical overnight charging scenario
-        min_charging_slots = int(np.ceil(energy_needed / ev_type["charging_rate"]))
-        min_deadline = min(arrival_time + min_charging_slots, T-1)
-        deadline = random.randint(min_deadline, T)  # Must finish by 6:30 AM
-        
-        arrival_schedule.append((arrival_time, i, energy_needed, deadline))
+        rtodc.add_ev(i, arrival_time, deadline, required_energy)
     
-    # Sort schedule by arrival time
-    arrival_schedule.sort(key=lambda x: x[0])
+    # Run the algorithm
+    rtodc.run()
+    rtodc.plot_results()
     
-    # Run simulation
-    while rtoc.current_time < T:
-        # Process new arrivals for current time step
-        current_arrivals = [
-            (t, ev_id, energy, deadline) 
-            for t, ev_id, energy, deadline in arrival_schedule 
-            if t == rtoc.current_time
-        ]
-        
-        # Activate new EVs
-        for _, ev_id, energy, deadline in current_arrivals:
-            rtoc.activate_ev(ev_id, deadline, energy)
-        
-        # Process time step
-        rtoc.step_time()
-        
-        if rtoc.current_time % 10 == 0:
-            print(f"\nTime: {rtoc.current_time} (Hour {20 + rtoc.current_time//4}:{(rtoc.current_time%4)*15:02d})")
-            print(f"Active EVs: {len(rtoc.active_evs)}")
-            if rtoc.charging_history:
-                total_rate = sum(rtoc.charging_history[-1].values())
-                print(f"Total charging rate: {total_rate:.2f} kW")
-                print(f"Base load: {D[rtoc.current_time]:.2f} kW")
-                print(f"Total load: {(D[rtoc.current_time] + total_rate):.2f} kW")
-    
-    rtoc.plot_results()
-    
-    return rtoc.charging_history
+    return rtodc
 
 if __name__ == "__main__":
-    charging_history = run_example()
+    rtodc = run_rtodc_example()
+# import numpy as np
+# import cvxpy as cp
+# from typing import List, Tuple, Dict, Set
+# import matplotlib.pyplot as plt
+# from dataclasses import dataclass
+# from collections import defaultdict
+
+# @dataclass
+# class EVState:
+#     """Class to track EV state"""
+#     arrival_time: int
+#     deadline: int
+#     required_energy: float
+#     charging_profile: np.ndarray
+#     is_active: bool = False
+#     total_charged: float = 0.0
+
+# class RealTimeOptimalDecentralizedCharging:
+#     def __init__(
+#         self,
+#         T: int,  # Total time horizon
+#         D: np.ndarray,  # Base load profile
+#         r_min: float = 0.0,  # Minimum charging rate
+#         r_max: float = 3.3,  # Maximum charging rate
+#         K: int = 100,  # Number of iterations per time slot
+#         alpha: float = 0.1,  # Step size parameter
+#         tolerance: float = 1e-3
+#     ):
+#         self.T = T
+#         self.D = D
+#         self.r_min = r_min
+#         self.r_max = r_max
+#         self.K = K
+#         self.alpha = alpha
+#         self.tolerance = tolerance
+        
+#         # Dictionary to store EV states
+#         self.ev_states: Dict[int, EVState] = {}
+#         self.active_evs: Set[int] = set()
+#         self.current_time = 0
+        
+#         # Store results for plotting
+#         self.total_load_history = []
+#         self.active_ev_counts = []
+        
+#     def add_ev(
+#         self,
+#         ev_id: int,
+#         arrival_time: int,
+#         deadline: int,
+#         required_energy: float
+#     ):
+#         """Add a new EV to the system"""
+#         self.ev_states[ev_id] = EVState(
+#             arrival_time=arrival_time,
+#             deadline=deadline,
+#             required_energy=required_energy,
+#             charging_profile=np.zeros(self.T)
+#         )
+    
+#     def update_active_evs(self, t: int):
+#         """Update the set of active EVs at time slot t"""
+#         # Remove completed or deadline-reached EVs
+#         to_remove = set()
+#         for ev_id in self.active_evs:
+#             ev = self.ev_states[ev_id]
+#             if (ev.total_charged >= ev.required_energy or 
+#                 t >= ev.deadline or 
+#                 not ev.is_active):
+#                 to_remove.add(ev_id)
+#                 ev.is_active = False
+        
+#         self.active_evs -= to_remove
+        
+#         # Add newly arrived EVs
+#         for ev_id, ev in self.ev_states.items():
+#             if (t >= ev.arrival_time and 
+#                 t < ev.deadline and 
+#                 ev.total_charged < ev.required_energy and 
+#                 not ev.is_active):
+#                 self.active_evs.add(ev_id)
+#                 ev.is_active = True
+    
+#     def calculate_control_signal(self, t: int, current_rates: Dict[int, float]) -> float:
+#         """Calculate control signal lambda(t)"""
+#         if not self.active_evs:
+#             return 0.0
+        
+#         total_current_rate = sum(current_rates.values())
+#         return (self.D[t] + total_current_rate) / len(self.active_evs)
+    
+#     def solve_ev_optimization(
+#         self,
+#         ev_id: int,
+#         t: int,
+#         control_signal: float,
+#         previous_rate: float
+#     ) -> float:
+#         """Solve single EV optimization problem for current time slot"""
+#         ev = self.ev_states[ev_id]
+        
+#         # Define optimization variable
+#         r = cp.Variable(1)
+        
+#         # Objective: (1/2)(r - r_prev)^2 + lambda*r
+#         objective = cp.Minimize(
+#             0.5 * cp.square(r - previous_rate) + control_signal * r
+#         )
+        
+#         # Constraints
+#         constraints = [
+#             r >= self.r_min,
+#             r <= self.r_max,
+#             r <= ev.required_energy - ev.total_charged  # Cannot charge more than needed
+#         ]
+        
+#         # Solve the problem
+#         problem = cp.Problem(objective, constraints)
+#         try:
+#             problem.solve()
+#             if problem.status == 'optimal':
+#                 return float(r.value)
+#             else:
+#                 return previous_rate
+#         except:
+#             return previous_rate
+    
+#     def run_time_slot(self, t: int) -> Dict[int, float]:
+#         """Execute one time slot of the RTODC algorithm"""
+#         self.update_active_evs(t)
+        
+#         if not self.active_evs:
+#             return {}
+        
+#         # Initialize charging rates for this time slot
+#         current_rates = {
+#             ev_id: self.ev_states[ev_id].charging_profile[t-1] if t > 0 else 0.0
+#             for ev_id in self.active_evs
+#         }
+        
+#         # Iteration loop
+#         for k in range(self.K):
+#             # Calculate control signal
+#             control_signal = self.calculate_control_signal(t, current_rates)
+            
+#             # Check convergence
+#             if abs(control_signal) < self.tolerance:
+#                 break
+            
+#             # Update each active EV's charging rate
+#             new_rates = {}
+#             for ev_id in self.active_evs:
+#                 new_rate = self.solve_ev_optimization(
+#                     ev_id,
+#                     t,
+#                     control_signal,
+#                     current_rates[ev_id]
+#                 )
+#                 new_rates[ev_id] = new_rate
+            
+#             # Update rates with step size
+#             for ev_id in self.active_evs:
+#                 current_rates[ev_id] = (
+#                     current_rates[ev_id] +
+#                     self.alpha * (new_rates[ev_id] - current_rates[ev_id])
+#                 )
+        
+#         # Update EV states with final rates
+#         for ev_id, rate in current_rates.items():
+#             self.ev_states[ev_id].charging_profile[t] = rate
+#             self.ev_states[ev_id].total_charged += rate
+        
+#         return current_rates
+    
+#     def run(self):
+#         """Run the complete RTODC algorithm"""
+#         for t in range(self.T):
+#             self.current_time = t
+#             rates = self.run_time_slot(t)
+            
+#             # Store results for plotting
+#             total_load = self.D[t] + sum(rates.values())
+#             self.total_load_history.append(total_load)
+#             self.active_ev_counts.append(len(self.active_evs))
+    
+#     def plot_results(self):
+#         """Plot the results of the optimization"""
+#         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
+        
+#         # Time labels
+#         time_labels = []
+#         current_hour = 20
+#         current_minute = 0
+#         for _ in range(self.T):
+#             time_labels.append(f"{current_hour:02d}:{current_minute:02d}")
+#             current_minute += 15
+#             if current_minute >= 60:
+#                 current_minute = 0
+#                 current_hour += 1
+#                 if current_hour >= 24:
+#                     current_hour = 0
+        
+#         # Plot 1: Individual EV charging profiles
+#         for ev_id, ev in self.ev_states.items():
+#             ax1.plot(time_labels, ev.charging_profile, 
+#                     label=f'EV {ev_id}', alpha=0.5)
+#         ax1.set_title('Individual EV Charging Profiles')
+#         ax1.set_xlabel('Time')
+#         ax1.set_ylabel('Charging Rate (kW)')
+#         ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+#         ax1.grid(True)
+#         plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
+        
+#         # Plot 2: Total load profile
+#         ax2.plot(time_labels, self.D, 'k-', label='Base Load', marker='o')
+#         ax2.plot(time_labels, self.total_load_history, 'b--', 
+#                 label='Total Load')
+#         ax2.set_title('Load Profiles')
+#         ax2.set_xlabel('Time')
+#         ax2.set_ylabel('Load (kW)')
+#         ax2.legend()
+#         ax2.grid(True)
+#         plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
+        
+#         # Plot 3: Number of active EVs
+#         ax3.plot(time_labels, self.active_ev_counts)
+#         ax3.set_title('Number of Active EVs')
+#         ax3.set_xlabel('Time')
+#         ax3.set_ylabel('Count')
+#         ax3.grid(True)
+        
+#         plt.tight_layout()
+#         plt.show()
+
+# def run_rtodc_example():
+#     """Run example simulation with RTODC"""
+#     T = 52  # 15-minute intervals from 20:00 to 06:30
+#     np.random.seed(0)
+    
+#     # Base load profile (same as before)
+#     D = np.array([
+#         0.90, 0.90, 0.89, 0.88, 0.85,  # 20:00-21:00
+#         0.82, 0.78, 0.75, 0.70, 0.65,  # 21:00-22:00
+#         0.62, 0.58, 0.55, 0.53, 0.52,  # 22:00-23:00
+#         0.50, 0.48, 0.47, 0.46, 0.45,  # 23:00-00:00
+#         0.45, 0.44, 0.44, 0.43, 0.43,  # 00:00-01:00
+#         0.42, 0.42, 0.42, 0.42, 0.42,  # 01:00-02:00
+#         0.42, 0.42, 0.42, 0.42, 0.42,  # 02:00-03:00
+#         0.43, 0.43, 0.44, 0.45, 0.47,  # 03:00-04:00
+#         0.50, 0.52, 0.55, 0.58, 0.61,  # 04:00-05:00
+#         0.63, 0.65, 0.67, 0.68, 0.67,  # 05:00-06:00
+#         0.66, 0.65                      # 06:00-06:30
+#     ]) * 80
+    
+#     # Initialize RTODC
+#     rtodc = RealTimeOptimalDecentralizedCharging(
+#         T=T,
+#         D=D,
+#         r_max=3.3,
+#         r_min=0.0,
+#         K=100,
+#         alpha=0.1,
+#         tolerance=1e-3
+#     )
+    
+#     # Add EVs with random arrival times
+#     N = 20  # Number of EVs
+#     for i in range(N):
+#         # Random arrival time in first half of horizon
+#         arrival_time = np.random.randint(0, T//2)
+#         # Deadline in second half of horizon
+#         deadline = T
+#         # Random energy requirement
+#         required_energy = np.random.uniform(5, 25)
+        
+#         rtodc.add_ev(i, arrival_time, deadline, required_energy)
+    
+#     # Run the algorithm
+#     rtodc.run()
+#     rtodc.plot_results()
+    
+#     return rtodc
+
+# if __name__ == "__main__":
+#     rtodc = run_rtodc_example()
