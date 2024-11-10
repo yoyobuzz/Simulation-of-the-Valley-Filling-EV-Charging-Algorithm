@@ -183,12 +183,12 @@ def run_example():
         0.50, 0.52, 0.55, 0.58, 0.61,  # 04:00-05:00
         0.63, 0.65, 0.67, 0.68, 0.67,  # 05:00-06:00
         0.66, 0.65                      # 06:00-06:30
-    ]) * 250  # Peak at noon
+    ]) * 80  # Peak at noon
     beta = 2.0  # Lipschitz constant
     
     # Target energy requirements for each EV (example: different requirements)
-    # E_target = np.array([5.0]*N)  # kWh
-    E_target = np.random.uniform(5, 20, N) # kWh
+    E_target = np.array([10.0]*N)  # kWh
+    # E_target = np.random.uniform(5, 20, N) # kWh
     
     # Initialize and run the algorithm
     odc = OptimalDecentralizedCharging(

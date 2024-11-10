@@ -1,6 +1,6 @@
 import numpy as np
 import cvxpy as cp
-from typing import List, Tuple, Callable
+from typing import List, Tuple
 import matplotlib.pyplot as plt
 
 class OptimalDecentralizedCharging:
@@ -248,5 +248,49 @@ def run_example():
     optimal_profiles = odc.run()
     return optimal_profiles
 
+
+def plot_base_load(D: np.ndarray):
+    """Plot the base load profile D over the scheduling horizon."""
+    T = len(D)
+    
+    # Time labels (15-minute intervals from 20:00 to 06:30)
+    time_labels = []
+    current_hour = 20
+    current_minute = 0
+    for _ in range(T):
+        time_labels.append(f"{current_hour:02d}:{current_minute:02d}")
+        current_minute += 15
+        if current_minute >= 60:
+            current_minute = 0
+            current_hour += 1
+            if current_hour >= 24:
+                current_hour = 0
+    
+    # Plot the base load profile
+    plt.figure(figsize=(12, 6))
+    plt.plot(time_labels, D, 'k-', label='Base Load', marker='o')
+    plt.title('Base Load Profile')
+    plt.xlabel('Time')
+    plt.ylabel('Load (kW)')
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == "__main__":
+    D = np.array([
+        0.90, 0.90, 0.89, 0.88, 0.85,  # 20:00-21:00
+        0.82, 0.78, 0.75, 0.70, 0.65,  # 21:00-22:00
+        0.62, 0.58, 0.55, 0.53, 0.52,  # 22:00-23:00
+        0.50, 0.48, 0.47, 0.46, 0.45,  # 23:00-00:00
+        0.45, 0.44, 0.44, 0.43, 0.43,  # 00:00-01:00
+        0.42, 0.42, 0.42, 0.42, 0.42,  # 01:00-02:00
+        0.42, 0.42, 0.42, 0.42, 0.42,  # 02:00-03:00
+        0.43, 0.43, 0.44, 0.45, 0.47,  # 03:00-04:00
+        0.50, 0.52, 0.55, 0.58, 0.61,  # 04:00-05:00
+        0.63, 0.65, 0.67, 0.68, 0.67,  # 05:00-06:00
+        0.66, 0.65                      # 06:00-06:30
+    ]) * 80
+    plot_base_load(D)
     optimal_profiles = run_example()
