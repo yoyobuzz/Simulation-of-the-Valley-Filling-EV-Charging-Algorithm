@@ -196,6 +196,37 @@ class OptimalDecentralizedCharging:
         plt.tight_layout()
         plt.show()
 
+
+
+def plot_base_load(D: np.ndarray):
+    """Plot the base load profile D over the scheduling horizon."""
+    T = len(D)
+    
+    # Time labels (15-minute intervals from 20:00 to 06:30)
+    time_labels = []
+    current_hour = 20
+    current_minute = 0
+    for _ in range(T):
+        time_labels.append(f"{current_hour:02d}:{current_minute:02d}")
+        current_minute += 15
+        if current_minute >= 60:
+            current_minute = 0
+            current_hour += 1
+            if current_hour >= 24:
+                current_hour = 0
+    
+    # Plot the base load profile
+    plt.figure(figsize=(12, 6))
+    plt.plot(time_labels, D, 'k-', label='Base Load', marker='o')
+    plt.title('Base Load Profile')
+    plt.xlabel('Time')
+    plt.ylabel('Load (kW)')
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
 def run_example():
     T = 52  # 30-minute intervals from 20:00 to 06:30
     N = 20  # Number of EVs
@@ -248,49 +279,115 @@ def run_example():
     optimal_profiles = odc.run()
     return optimal_profiles
 
+def run_example1():
+    import datetime
+    import pandas as pd
+    # Read base load data from Excel
+    base_load_file = 'base_load.xlsx'  # Replace with your actual file path
+    try:
+        base_load_df = pd.read_excel(base_load_file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Base load file '{base_load_file}' not found.")
 
-def plot_base_load(D: np.ndarray):
-    """Plot the base load profile D over the scheduling horizon."""
-    T = len(D)
+    # Ensure required columns exist
+    required_columns = ['Time', 'Demand_weekends']
+    if not all(col in base_load_df.columns for col in required_columns):
+        raise ValueError(f"Base load file must contain columns: {required_columns}")
+
+    # Parse the 'Time' column to extract start times as datetime.time objects
+    def extract_start_time(time_str):
+        try:
+            start_str = time_str.split('-')[0]
+            return datetime.datetime.strptime(start_str, '%H:%M').time()
+        except Exception as e:
+            raise ValueError(f"Invalid time format '{time_str}': {e}")
+
+    base_load_df['Start_Time'] = base_load_df['Time'].apply(extract_start_time)
+
+    # Define start and end times for filtering
+    start_time = datetime.time(20, 0)  # 20:00
+    end_time = datetime.time(9, 0)     # 09:00
+
+    # Filter rows where Start_Time >= 20:00 or Start_Time < 09:00
+    slots_after_20 = base_load_df[base_load_df['Start_Time'] >= start_time].copy()
+    slots_before_09 = base_load_df[base_load_df['Start_Time'] < end_time].copy()
+
+    # Concatenate to ensure 20:00 slots come first
+    filtered_df = pd.concat([slots_after_20, slots_before_09], ignore_index=True)
+
+    # Verify that exactly 52 slots are selected
+    expected_slots = 52
+    actual_slots = len(filtered_df)
+    if actual_slots != expected_slots:
+        raise ValueError(
+            f"Expected {expected_slots} time slots from 20:00 to 09:00, but found {actual_slots}."
+        )
+
+    # Extract D and time_labels from the filtered DataFrame
+    D = filtered_df['Demand_weekends'].values
+    T = len(D)  # Total scheduling horizon based on the number of time slots
+
+    # Read EV information from Excel
+    ev_info_file = 'ev_info.xlsx'  # Replace with your actual file path
+    try:
+        ev_info_df = pd.read_excel(ev_info_file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"EV information file '{ev_info_file}' not found.")
+
+    # Ensure required columns exist in EV info
+    ev_required_columns = [
+        'EV_ID', 'Arrival_Time', 'Deadline', 
+        'Energy_Requirement', 'Max_Charging_Rate'
+    ]
+    if not all(col in ev_info_df.columns for col in ev_required_columns):
+        raise ValueError(f"EV information file must contain columns: {ev_required_columns}")
+
+    # Extract EV data
+    arrival_times = ev_info_df['Arrival_Time'].values
+    departure_times = ev_info_df['Deadline'].values
+    E_target = ev_info_df['Energy_Requirement'].values
+    r_max = ev_info_df['Max_Charging_Rate'].values[0]  # Assuming uniform max charging rate
+
+    # Validate data consistency
+    if len(arrival_times) != len(departure_times) or len(departure_times) != len(E_target):
+        raise ValueError("Inconsistent EV information in the provided file.")
+
+    N = len(arrival_times)  # Number of EVs
+
+    # Initialize and run algorithm
+    beta = 2.0  # Lipschitz constant from paper
     
-    # Time labels (15-minute intervals from 20:00 to 06:30)
-    time_labels = []
-    current_hour = 20
-    current_minute = 0
-    for _ in range(T):
-        time_labels.append(f"{current_hour:02d}:{current_minute:02d}")
-        current_minute += 15
-        if current_minute >= 60:
-            current_minute = 0
-            current_hour += 1
-            if current_hour >= 24:
-                current_hour = 0
+    # Initialize and run the algorithm
+    odc = OptimalDecentralizedCharging(
+        T=T,
+        N=N,
+        D=D,
+        beta=beta,
+        arrival_times=arrival_times,
+        departure_times=departure_times,
+        E_target=E_target,
+        r_max=3.3,
+        r_min=0.0,
+        max_iterations=1000,
+        tolerance=1e-3
+    )
     
-    # Plot the base load profile
-    plt.figure(figsize=(12, 6))
-    plt.plot(time_labels, D, 'k-', label='Base Load', marker='o')
-    plt.title('Base Load Profile')
-    plt.xlabel('Time')
-    plt.ylabel('Load (kW)')
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    optimal_profiles = odc.run()
+    return optimal_profiles
 
 if __name__ == "__main__":
-    D = np.array([
-        0.90, 0.90, 0.89, 0.88, 0.85,  # 20:00-21:00
-        0.82, 0.78, 0.75, 0.70, 0.65,  # 21:00-22:00
-        0.62, 0.58, 0.55, 0.53, 0.52,  # 22:00-23:00
-        0.50, 0.48, 0.47, 0.46, 0.45,  # 23:00-00:00
-        0.45, 0.44, 0.44, 0.43, 0.43,  # 00:00-01:00
-        0.42, 0.42, 0.42, 0.42, 0.42,  # 01:00-02:00
-        0.42, 0.42, 0.42, 0.42, 0.42,  # 02:00-03:00
-        0.43, 0.43, 0.44, 0.45, 0.47,  # 03:00-04:00
-        0.50, 0.52, 0.55, 0.58, 0.61,  # 04:00-05:00
-        0.63, 0.65, 0.67, 0.68, 0.67,  # 05:00-06:00
-        0.66, 0.65                      # 06:00-06:30
-    ]) * 80
-    plot_base_load(D)
-    optimal_profiles = run_example()
+    # D = np.array([
+    #     0.90, 0.90, 0.89, 0.88, 0.85,  # 20:00-21:00
+    #     0.82, 0.78, 0.75, 0.70, 0.65,  # 21:00-22:00
+    #     0.62, 0.58, 0.55, 0.53, 0.52,  # 22:00-23:00
+    #     0.50, 0.48, 0.47, 0.46, 0.45,  # 23:00-00:00
+    #     0.45, 0.44, 0.44, 0.43, 0.43,  # 00:00-01:00
+    #     0.42, 0.42, 0.42, 0.42, 0.42,  # 01:00-02:00
+    #     0.42, 0.42, 0.42, 0.42, 0.42,  # 02:00-03:00
+    #     0.43, 0.43, 0.44, 0.45, 0.47,  # 03:00-04:00
+    #     0.50, 0.52, 0.55, 0.58, 0.61,  # 04:00-05:00
+    #     0.63, 0.65, 0.67, 0.68, 0.67,  # 05:00-06:00
+    #     0.66, 0.65                      # 06:00-06:30
+    # ]) * 80
+    # plot_base_load(D)
+    optimal_profiles = run_example1()
