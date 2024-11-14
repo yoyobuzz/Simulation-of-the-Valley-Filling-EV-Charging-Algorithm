@@ -196,9 +196,8 @@ class AsynchronousOptimalDecentralizedCharging:
     
     def plot_results(self, r: np.ndarray, convergence_history: List[float]):
         """Plot the results of the optimization"""
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
-        
-        # Time labels
+
+        # Time labels (4-hour intervals from 20:00 to 08:00)
         time_labels = []
         current_hour = 20
         current_minute = 0
@@ -209,37 +208,54 @@ class AsynchronousOptimalDecentralizedCharging:
                 current_minute = 0
                 current_hour += 1
                 if current_hour >= 24:
-                    current_hour = 0
-        
-        # Plot individual EV charging profiles
+                    current_hour -= 24
+
+        # Use every 16th label (4-hour intervals) for x-axis ticks
+        x_ticks = list(range(0, self.T, 16))
+        x_tick_labels = [time_labels[i] for i in x_ticks]
+
+        # Plot 1: Individual EV Charging Profiles
+        plt.figure(figsize=(7, 5))
         for n in range(self.N):
-            ax1.plot(time_labels, r[n], label=f'EV {n+1}', alpha=0.5)
-        ax1.set_title('Individual EV Charging Profiles')
-        ax1.set_xlabel('Time')
-        ax1.set_ylabel('Charging Rate (kW)')
-        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax1.grid(True)
-        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
-        
-        # Plot load profiles
-        total_load = self.D + np.sum(r, axis=0)
-        ax2.plot(time_labels, self.D, 'k-', label='Base Load', marker='o')
-        ax2.plot(time_labels, total_load, 'b--', label='Total Load')
-        ax2.set_title('Load Profiles')
-        ax2.set_xlabel('Time')
-        ax2.set_ylabel('Load (kW)')
-        ax2.legend()
-        ax2.grid(True)
-        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
-        
-        # Plot convergence history
-        ax3.plot(convergence_history)
-        ax3.set_title('Convergence History')
-        ax3.set_xlabel('Iteration')
-        ax3.set_ylabel('Total Cost')
-        ax3.grid(True)
-        
+            plt.plot(r[n], label=f'EV {n+1}', alpha=0.6, linewidth=1.2)
+        plt.xticks(x_ticks, x_tick_labels, rotation=45, fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.title('Individual EV Charging Profiles', fontsize=16, fontweight='bold')
+        plt.xlabel('Time of Day', fontsize=14)
+        plt.ylabel('Charging Rate (kW)', fontsize=14)
+        plt.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
+        plt.savefig("individual_ev_profiles.png", dpi=300)
+        plt.show()
+
+        # Plot 2: Total Load Profile
+        plt.figure(figsize=(7, 5))
+        total_load = self.D + np.sum(r, axis=0)
+        plt.plot(self.D, 'k-', label='Base Load', marker='o', linewidth=1.5, markersize=5)
+        plt.plot(total_load, 'b--', label='Total Load', marker='x', linewidth=1.5, markersize=5)
+        plt.xticks(x_ticks, x_tick_labels, rotation=45, fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.title('Load Profiles', fontsize=16, fontweight='bold')
+        plt.xlabel('Time of Day', fontsize=14)
+        plt.ylabel('Total Load (kW/household)', fontsize=14)
+        plt.legend(fontsize=10)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig("load_profiles.png", dpi=300)
+        plt.show()
+
+        # Plot 3: Convergence History
+        plt.figure(figsize=(7, 5))
+        plt.plot(convergence_history, 'r-', linewidth=2)
+        plt.xticks(fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.title('Convergence History', fontsize=16, fontweight='bold')
+        plt.xlabel('Iteration', fontsize=14)
+        plt.ylabel('Total Cost', fontsize=14)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig("convergence_history.png", dpi=300)
         plt.show()
 
 def run_example1():
@@ -301,6 +317,7 @@ def run_example1():
         'EV_ID', 'Arrival_Time', 'Deadline', 
         'Energy_Requirement', 'Max_Charging_Rate'
     ]
+    
     if not all(col in ev_info_df.columns for col in ev_required_columns):
         raise ValueError(f"EV information file must contain columns: {ev_required_columns}")
 

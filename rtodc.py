@@ -137,29 +137,27 @@ class RealTimeOptimalDecentralizedCharging:
         """Plot the results of the optimization"""
         N = len(self.ev_id_list)
         r = np.zeros((N, self.T))
-        
+
         for idx, ev_id in enumerate(self.ev_id_list):
             ev_data = self.EVs[ev_id]
             r_n_history = ev_data['r_n_history']
             arrival = ev_data['arrival']
             deadline = ev_data['deadline']
-            
+
             arrival_int = int(arrival)
-            
-            # Calculate the number of time slots thḍḍḍḍe EV was charging
+
+            # Calculate the number of time slots the EV was charging
             charging_duration = len(r_n_history)
-            
+
             charging_end = min(arrival_int + charging_duration, self.T)
-            
+
             # Assign the charging history to the correct time slots
             r[idx, arrival_int:charging_end] = r_n_history[:charging_end - arrival_int]
-        
+
         total_load = self.total_load
         convergence_history = self.convergence_history
 
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(18, 18))
-
-        # Time labels (15-minute intervals from 20:00 to 06:30)
+        # Time labels (4-hour intervals from 20:00 to 08:00)
         time_labels = []
         current_hour = 20
         current_minute = 0
@@ -170,36 +168,53 @@ class RealTimeOptimalDecentralizedCharging:
                 current_minute = 0
                 current_hour += 1
                 if current_hour >= 24:
-                    current_hour = 0
+                    current_hour -= 24
 
-        # Plot 1: Individual EV charging profiles
+        # Use every 16th label (4-hour intervals) for x-axis ticks
+        x_ticks = list(range(0, self.T, 16))
+        x_tick_labels = [time_labels[i] for i in x_ticks]
+
+        # Plot 1: Individual EV Charging Profiles
+        plt.figure(figsize=(7, 5))
         for idx in range(N):
-            ax1.plot(time_labels, r[idx], label=f'EV {idx+1}', alpha=0.5)
-        ax1.set_title('Individual EV Charging Profiles')
-        ax1.set_xlabel('Time')
-        ax1.set_ylabel('Charging Rate (kW)')
-        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
-        ax1.grid(True)
-        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
-
-        # Plot 2: Convergence history
-        ax2.plot(range(1, self.T+1), convergence_history, marker='o')
-        ax2.set_title('Convergence History (Variance of Total Load)')
-        ax2.set_xlabel('Time Slot')
-        ax2.set_ylabel('Total Load Variance')
-        ax2.grid(True)
-
-        # Plot 3: Total load profile
-        ax3.plot(time_labels, self.D, 'k-', label='Base Load', marker='o')
-        ax3.plot(time_labels, total_load, 'b--', label='Total Load')
-        ax3.set_title('Total Load Profile')
-        ax3.set_xlabel('Time')
-        ax3.set_ylabel('Load (kW)')
-        ax3.legend()
-        ax3.grid(True)
-        plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45)
-
+            plt.plot(r[idx], label=f'EV {idx+1}', alpha=0.6, linewidth=1.2)
+        plt.xticks(x_ticks, x_tick_labels, rotation=45, fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.title('Individual EV Charging Profiles', fontsize=16, fontweight='bold')
+        plt.xlabel('Time of Day', fontsize=14)
+        plt.ylabel('Charging Rate (kW)', fontsize=14)
+        plt.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
+        plt.savefig("individual_ev_profiles.png", dpi=300)
+        plt.show()
+
+        # Plot 2: Convergence History
+        plt.figure(figsize=(7, 5))
+        plt.plot(range(1, self.T + 1), convergence_history, marker='o', linewidth=1.5)
+        plt.xticks(fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.title('Convergence History (Variance of Total Load)', fontsize=16, fontweight='bold')
+        plt.xlabel('Time Slot', fontsize=14)
+        plt.ylabel('Total Load Variance', fontsize=14)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig("convergence_history.png", dpi=300)
+        plt.show()
+
+        # Plot 3: Total Load Profile
+        plt.figure(figsize=(7, 5))
+        plt.plot(self.D, 'k-', label='Base Load', marker='o', linewidth=1.5, markersize=5)
+        plt.plot(total_load, 'b--', label='Total Load', marker='x', linewidth=1.5, markersize=5)
+        plt.xticks(x_ticks, x_tick_labels, rotation=45, fontsize=10)
+        plt.yticks(fontsize=10)
+        plt.title('Total Load Profile', fontsize=16, fontweight='bold')
+        plt.xlabel('Time of Day', fontsize=14)
+        plt.ylabel('Load (kW)', fontsize=14)
+        plt.legend(fontsize=10)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig("total_load_profile.png", dpi=300)
         plt.show()
 
 def run_realtime_example():
@@ -291,47 +306,47 @@ def run_realtime_example():
     rt_odc.run()
     rt_odc.plot_results()
 
-if __name__ == "__main__":
-    run_realtime_example()
-
-# def run_realtime_example():
-#     T = 52  # 30-minute intervals from 20:00 to 06:30
-
-#     np.random.seed(0)
-#     # Base load profile
-#     D = np.array([
-#         0.90, 0.90, 0.89, 0.88, 0.85,  # 20:00-21:00
-#         0.82, 0.78, 0.75, 0.70, 0.65,  # 21:00-22:00
-#         0.62, 0.58, 0.55, 0.53, 0.52,  # 22:00-23:00
-#         0.50, 0.48, 0.47, 0.46, 0.45,  # 23:00-00:00
-#         0.45, 0.44, 0.44, 0.43, 0.43,  # 00:00-01:00
-#         0.42, 0.42, 0.42, 0.42, 0.42,  # 01:00-02:00
-#         0.42, 0.42, 0.42, 0.42, 0.42,  # 02:00-03:00
-#         0.43, 0.43, 0.44, 0.45, 0.47,  # 03:00-04:00
-#         0.50, 0.52, 0.55, 0.58, 0.61,  # 04:00-05:00
-#         0.63, 0.65, 0.67, 0.68, 0.67,  # 05:00-06:00
-#         0.66, 0.65                      # 06:00-06:30
-#     ]) * 80
-    
-#     beta = 2.0  # Lipschitz constant
-#     K = 10  # Number of iterations in each time slot
-
-#     rt_odc = RealTimeOptimalDecentralizedCharging(T=T, D=D, beta=beta, K=K)
-
-#     # Generate random EVs
-#     N = 21  # Number of EVs
-#     for n in range(N-1):
-#         ev_id = n
-#         arrival = np.random.uniform(0, T // 2) 
-#         deadline = T  # All EVs must finish charging by the end of the horizon
-#         energy_requirement = np.random.uniform(5, 25)  # Random energy requirement in kWh
-#         max_charging_rate = 3.3  # Maximum charging rate in kW
-#         rt_odc.add_EV(ev_id, arrival, deadline, energy_requirement, max_charging_rate)
-
-#     rt_odc.add_EV(20, T // 2, T // 2 + 2, 50, 25)
-
-#     rt_odc.run()
-#     rt_odc.plot_results()
-
 # if __name__ == "__main__":
 #     run_realtime_example()
+
+def run_realtime_example():
+    T = 52  # 30-minute intervals from 20:00 to 06:30
+
+    np.random.seed(0)
+    # Base load profile
+    D = np.array([
+        0.90, 0.90, 0.89, 0.88, 0.85,  # 20:00-21:00
+        0.82, 0.78, 0.75, 0.70, 0.65,  # 21:00-22:00
+        0.62, 0.58, 0.55, 0.53, 0.52,  # 22:00-23:00
+        0.50, 0.48, 0.47, 0.46, 0.45,  # 23:00-00:00
+        0.45, 0.44, 0.44, 0.43, 0.43,  # 00:00-01:00
+        0.42, 0.42, 0.42, 0.42, 0.42,  # 01:00-02:00
+        0.42, 0.42, 0.42, 0.42, 0.42,  # 02:00-03:00
+        0.43, 0.43, 0.44, 0.45, 0.47,  # 03:00-04:00
+        0.50, 0.52, 0.55, 0.58, 0.61,  # 04:00-05:00
+        0.63, 0.65, 0.67, 0.68, 0.67,  # 05:00-06:00
+        0.66, 0.65                      # 06:00-06:30
+    ]) * 80
+    
+    beta = 2.0  # Lipschitz constant
+    K = 10  # Number of iterations in each time slot
+
+    rt_odc = RealTimeOptimalDecentralizedCharging(T=T, D=D, beta=beta, K=K)
+
+    # Generate random EVs
+    N = 21  # Number of EVs
+    for n in range(N-1):
+        ev_id = n
+        arrival = np.random.uniform(0, T // 2) 
+        deadline = T  # All EVs must finish charging by the end of the horizon
+        energy_requirement = np.random.uniform(5, 25)  # Random energy requirement in kWh
+        max_charging_rate = 3.3  # Maximum charging rate in kW
+        rt_odc.add_EV(ev_id, arrival, deadline, energy_requirement, max_charging_rate)
+
+    rt_odc.add_EV(20, T // 2, T // 2 + 2, 50, 25)
+
+    rt_odc.run()
+    rt_odc.plot_results()
+
+if __name__ == "__main__":
+    run_realtime_example()
