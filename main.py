@@ -413,7 +413,7 @@ if __name__ == "__main__":
     # print("Optimal charging profiles (ODC file):", optimal_profiles_odc_file)
 
     # Run Asynchronous Optimal Decentralized Charging (AODC) with demo data
-    optimal_profiles_aodc_demo = run_asynchronous_optimal_decentralized_charging_demo()
+    # optimal_profiles_aodc_demo = run_asynchronous_optimal_decentralized_charging_demo()
     # print("Optimal charging profiles (AODC demo):", optimal_profiles_aodc_demo)
 
     # Run Asynchronous Optimal Decentralized Charging (AODC) with data from files
