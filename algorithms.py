@@ -4,26 +4,7 @@ import matplotlib.pyplot as plt
 from typing import List, Tuple, Dict
 import random
 
-
 class OptimalDecentralizedCharging:
-    """
-    Optimal decentralized charging algorithm for electric vehicles (EVs).
-
-    Attributes:
-        T (int): Total scheduling horizon.
-        N (int): Number of EVs.
-        D (np.ndarray): Base load profile.
-        beta (float): Lipschitz constant.
-        arrival_times (np.ndarray): Arrival time slots for each EV.
-        departure_times (np.ndarray): Departure time slots for each EV.
-        r_min (float): Minimum charging rate.
-        r_max (float): Maximum charging rate.
-        E_target (np.ndarray): Target energy for each EV.
-        max_iterations (int): Maximum number of iterations.
-        tolerance (float): Convergence tolerance.
-        gamma (float): Step size parameter.
-    """
-
     def __init__(
         self,
         T: int,
@@ -57,41 +38,13 @@ class OptimalDecentralizedCharging:
         self.gamma = 0.5 / (N * beta)
 
     def utility_prime(self, x: float) -> float:
-        """
-        Derivative of utility function U(x) = 0.5 * x^2.
-
-        Args:
-            x (float): Load value.
-
-        Returns:
-            float: Derivative value.
-        """
         return x
 
     def calculate_control_signal(self, D_t: float, r_sum_t: float) -> float:
-        """
-        Calculate control signal for a given time slot.
-
-        Args:
-            D_t (float): Base load at time t.
-            r_sum_t (float): Sum of EV charging rates at time t.
-
-        Returns:
-            float: Control signal value.
-        """
         total_load = D_t + r_sum_t
         return self.gamma * self.utility_prime(total_load)
 
     def get_feasible_charging_window(self, n: int) -> List[Tuple[float, float]]:
-        """
-        Get feasible charging rates for each time slot based on EV's arrival and departure times.
-
-        Args:
-            n (int): Index of the EV.
-
-        Returns:
-            List[Tuple[float, float]]: Feasible charging rates for each time slot.
-        """
         feasible_set = []
         for t in range(self.T):
             if self.arrival_times[n] <= t < self.departure_times[n]:
@@ -107,18 +60,6 @@ class OptimalDecentralizedCharging:
         n: int,
         feasible_set_constraints: List[Tuple[float, float]],
     ) -> np.ndarray:
-        """
-        Solve the optimization problem for each EV.
-
-        Args:
-            p_k (np.ndarray): Control signal for each time slot.
-            r_k (np.ndarray): Previous charging profile for EV n.
-            n (int): Index of the EV.
-            feasible_set_constraints (List[Tuple[float, float]]): Feasible charging rates.
-
-        Returns:
-            np.ndarray: Updated charging profile for EV n.
-        """
         T = len(p_k)
         r_next = cp.Variable(T)
 
@@ -137,25 +78,21 @@ class OptimalDecentralizedCharging:
                 return r_next.value
             else:
                 return r_k
-        except:
+        except Exception as e:
+            print(f"Optimization error for EV {n}: {e}")
             return r_k
 
     def run(self) -> np.ndarray:
-        """
-        Run the optimal decentralized charging algorithm.
-
-        Returns:
-            np.ndarray: Final charging profiles for all EVs.
-        """
         r = np.zeros((self.N, self.T))
 
         for n in range(self.N):
             window_length = self.departure_times[n] - self.arrival_times[n]
-            charging_slots = np.zeros(self.T)
-            charging_slots[self.arrival_times[n] : self.departure_times[n]] = (
-                self.E_target[n] / window_length
-            )
-            r[n, :] = charging_slots
+            if window_length > 0:
+                charging_slots = np.zeros(self.T)
+                charging_slots[self.arrival_times[n] : self.departure_times[n]] = (
+                    self.E_target[n] / window_length
+                )
+                r[n, :] = charging_slots
 
         convergence_history = []
 
@@ -177,18 +114,10 @@ class OptimalDecentralizedCharging:
             if np.max(np.abs(r - r_prev)) < self.tolerance:
                 print(f"Converged after {iteration + 1} iterations")
                 break
-
         self.plot_results(r, convergence_history)
         return r
 
     def plot_results(self, r: np.ndarray, convergence_history: List[float]):
-        """
-        Plot the results of the optimization.
-
-        Args:
-            r (np.ndarray): Charging profiles for all EVs.
-            convergence_history (List[float]): Convergence history.
-        """
         time_labels = []
         current_hour = 20
         current_minute = 0
@@ -245,29 +174,7 @@ class OptimalDecentralizedCharging:
         plt.savefig("convergence_history.png", dpi=300)
         plt.show()
 
-
 class AsynchronousOptimalDecentralizedCharging:
-    """
-    Asynchronous optimal decentralized charging algorithm for electric vehicles (EVs).
-
-    Attributes:
-        T (int): Total scheduling horizon.
-        N (int): Number of EVs.
-        D (np.ndarray): Base load profile.
-        beta (float): Lipschitz constant.
-        arrival_times (np.ndarray): Arrival time slots for each EV.
-        departure_times (np.ndarray): Departure time slots for each EV.
-        d (int): Maximum delay bound.
-        r_min (float): Minimum charging rate.
-        r_max (float): Maximum charging rate.
-        E_target (np.ndarray): Target energy for each EV.
-        max_iterations (int): Maximum number of iterations.
-        tolerance (float): Convergence tolerance.
-        gamma (float): Step size parameter.
-        K_0 (List[int]): Utility update iterations.
-        K_n (Dict[int, List[int]]): EV update iterations.
-    """
-
     def __init__(
         self,
         T: int,
@@ -309,21 +216,9 @@ class AsynchronousOptimalDecentralizedCharging:
         self.p_history = []
 
     def _initialize_utility_update_set(self) -> List[int]:
-        """
-        Initialize set of iterations when utility updates control signal.
-
-        Returns:
-            List[int]: Utility update iterations.
-        """
         return list(range(0, self.max_iterations, self.d))
 
     def _initialize_ev_update_sets(self) -> Dict[int, List[int]]:
-        """
-        Initialize sets of iterations when EVs update their profiles.
-
-        Returns:
-            Dict[int, List[int]]: EV update iterations.
-        """
         K_n = {}
         for n in range(self.N):
             offset = random.randint(0, self.d - 1)
@@ -331,65 +226,47 @@ class AsynchronousOptimalDecentralizedCharging:
         return K_n
 
     def utility_prime(self, x: float) -> float:
-        """
-        Derivative of utility function U(x) = (beta / 2) * x^2.
-
-        Args:
-            x (float): Load value.
-
-        Returns:
-            float: Derivative value.
-        """
         return self.beta * x
 
     def calculate_control_signal(self, k: int) -> np.ndarray:
-        """
-        Calculate control signal considering delays.
-
-        Args:
-            k (int): Current iteration.
-
-        Returns:
-            np.ndarray: Control signal for each time slot.
-        """
         p_k = np.zeros(self.T)
 
         if k == 0 or (k - 1) in self.K_0:
             for t in range(self.T):
                 total_load = self.D[t]
-                for n in range(self.N):
-                    delay = random.randint(0, self.d)
-                    r_delayed = self.get_delayed_charging_profile(self.r_history[-1], k, delay)
-                    total_load += r_delayed[n, t]
-
+                if self.r_history:
+                    for n in range(self.N):
+                        delay = random.randint(0, self.d)
+                        r_delayed = self.get_delayed_charging_profile(self.r_history[-1], k, delay)
+                        total_load += r_delayed[n, t]
                 p_k[t] = self.gamma * self.utility_prime(total_load)
 
         return p_k
 
     def get_delayed_charging_profile(self, r: np.ndarray, k: int, delay: int) -> np.ndarray:
-        """
-        Get delayed charging profile based on history.
-
-        Args:
-            r (np.ndarray): Charging profiles.
-            k (int): Current iteration.
-            delay (int): Delay value.
-
-        Returns:
-            np.ndarray: Delayed charging profile.
-        """
         delayed_k = max(0, k - delay)
-        if delayed_k == 0:
+        if delayed_k == 0 or delayed_k >= len(self.r_history):
             return np.zeros_like(r)
         return self.r_history[delayed_k]
 
-    def run(self) -> np.ndarray:
-        """
-        Run the asynchronous optimal decentralized charging algorithm.
+    def solve_ev_optimization(self, p_k: np.ndarray, r_k: np.ndarray, n: int) -> np.ndarray:
+        r_next = cp.Variable(self.T)
+        constraints = []
+        for t in range(self.T):
+            if self.arrival_times[n] <= t < self.departure_times[n]:
+                constraints.extend([r_next[t] >= self.r_min, r_next[t] <= self.r_max])
+            else:
+                constraints.append(r_next[t] == 0)
+        constraints.append(cp.sum(r_next) == self.E_target[n])
 
-        Returns:
-            np.ndarray: Final charging profiles for all EVs.
-        """
+        objective = cp.Minimize(p_k @ r_next + 0.5 * cp.sum_squares(r_next - r_k))
+        problem = cp.Problem(objective, constraints)
+        problem.solve()
+        if problem.status == 'optimal':
+            return r_next.value
+        return r_k
+
+    def run(self) -> np.ndarray:
         r = np.zeros((self.N, self.T))
         self.r_history = [r.copy()]
         self.p_history = [np.zeros(self.T)]
@@ -406,7 +283,7 @@ class AsynchronousOptimalDecentralizedCharging:
             for n in range(self.N):
                 if k in self.K_n[n]:
                     delay = random.randint(0, self.d)
-                    p_delayed = self.get_delayed_control_signal(k, delay)
+                    p_delayed = self.calculate_control_signal(max(0, k - delay))
                     r[n] = self.solve_ev_optimization(p_delayed, r_prev[n], n)
 
             self.r_history.append(r.copy())
@@ -421,20 +298,12 @@ class AsynchronousOptimalDecentralizedCharging:
                 no_significant_change_count = 0
 
             if no_significant_change_count >= 2 * self.d:
-                print(f"Converged after {k + 1} iterations")
                 break
 
         self.plot_results(r, convergence_history)
         return r
 
     def plot_results(self, r: np.ndarray, convergence_history: List[float]):
-        """
-        Plot the results of the optimization.
-
-        Args:
-            r (np.ndarray): Charging profiles for all EVs.
-            convergence_history (List[float]): Convergence history.
-        """
         time_labels = []
         current_hour = 20
         current_minute = 0
@@ -461,7 +330,6 @@ class AsynchronousOptimalDecentralizedCharging:
         plt.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("individual_ev_profiles_async.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -476,7 +344,6 @@ class AsynchronousOptimalDecentralizedCharging:
         plt.legend(fontsize=10)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("load_profiles_async.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -488,27 +355,9 @@ class AsynchronousOptimalDecentralizedCharging:
         plt.ylabel('Total Cost', fontsize=14)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("convergence_history_async.png", dpi=300)
         plt.show()
 
-
 class RealTimeOptimalDecentralizedCharging:
-    """
-    Real-time optimal decentralized charging algorithm for electric vehicles (EVs).
-
-    Attributes:
-        T (int): Total scheduling horizon.
-        D (np.ndarray): Base load profile.
-        beta (float): Lipschitz constant.
-        K (int): Number of iterations in each time slot.
-        gamma (float): Step size parameter.
-        EVs (Dict[int, Dict]): Dictionary of EVs data.
-        Nt (List[int]): Active EVs at time t.
-        total_load (np.ndarray): Total load at each time slot.
-        convergence_history (List[float]): Convergence history.
-        ev_id_list (List[int]): List of EV IDs.
-    """
-
     def __init__(
         self,
         T: int,
@@ -536,16 +385,6 @@ class RealTimeOptimalDecentralizedCharging:
         energy_needed: float,
         max_charging_rate: float,
     ):
-        """
-        Add an EV to the system.
-
-        Args:
-            ev_id (int): EV identifier.
-            arrival_time (int): Arrival time slot of the EV.
-            deadline (int): Deadline time slot of the EV.
-            energy_needed (float): Total energy required by the EV.
-            max_charging_rate (float): Maximum charging rate of the EV.
-        """
         ev_data = {
             'id': ev_id,
             'arrival': arrival_time,
@@ -560,19 +399,10 @@ class RealTimeOptimalDecentralizedCharging:
         self.ev_id_list.append(ev_id)
 
     def run(self):
-        """
-        Run the real-time optimal decentralized charging algorithm.
-        """
         for t in range(self.T):
             self.t = t
 
-            Nt = []
-            for ev_id, ev_data in self.EVs.items():
-                if ev_data['arrival'] <= t < ev_data['deadline'] and ev_data['R_t'] > 1e-6:
-                    Nt.append(ev_id)
-                    ev_data['active'] = True
-                else:
-                    ev_data['active'] = False
+            Nt = [ev_id for ev_id, ev_data in self.EVs.items() if ev_data['arrival'] <= t < ev_data['deadline'] and ev_data['R_t'] > 1e-6]
             self.Nt = Nt
 
             if not Nt:
@@ -590,8 +420,7 @@ class RealTimeOptimalDecentralizedCharging:
                     ev_data['r_nk'] = np.zeros(horizon_n)
                 else:
                     ev_data['r_nk'] = ev_data['r_nk'][1:]
-                    if len(ev_data['r_nk']) < horizon_n:
-                        ev_data['r_nk'] = np.append(ev_data['r_nk'], 0.0)
+                    ev_data['r_nk'] = np.append(ev_data['r_nk'], 0.0)
 
             for k in range(self.K):
                 total_load = self.D[t:].copy()
@@ -600,8 +429,7 @@ class RealTimeOptimalDecentralizedCharging:
                     ev_data = self.EVs[ev_id]
                     d_n = ev_data['deadline']
                     horizon_n = d_n - t
-                    r_nk = ev_data['r_nk']
-                    r_sum[:horizon_n] += r_nk
+                    r_sum[:horizon_n] += ev_data['r_nk']
                 total_load_k = total_load[:len(r_sum)] + r_sum
                 U_prime = total_load_k
                 pk = self.gamma / N_t * U_prime
@@ -619,16 +447,14 @@ class RealTimeOptimalDecentralizedCharging:
                     constraints = [r_n >= 0, r_n <= max_rate, cp.sum(r_n) == Rn_t]
                     prob = cp.Problem(objective, constraints)
                     prob.solve()
-                    if prob.status == 'optimal':
+                    if prob.status == cp.OPTIMAL:
                         ev_data['r_nk'] = r_n.value
-                    else:
-                        pass
 
             for ev_id in Nt:
                 ev_data = self.EVs[ev_id]
                 r_n_t = ev_data['r_nk'][0]
                 ev_data['r_n_history'].append(r_n_t)
-                ev_data['R_t'] -= r_n_t
+                ev_data['R_t'] = max(0, ev_data['R_t'] - r_n_t)
                 if ev_data['R_t'] <= 1e-6 or ev_data['deadline'] <= t + 1:
                     ev_data['active'] = False
                     ev_data['r_nk'] = None
@@ -640,9 +466,6 @@ class RealTimeOptimalDecentralizedCharging:
             self.convergence_history.append(variance)
 
     def plot_results(self):
-        """
-        Plot the results of the optimization.
-        """
         N = len(self.ev_id_list)
         r = np.zeros((N, self.T))
 
@@ -650,14 +473,9 @@ class RealTimeOptimalDecentralizedCharging:
             ev_data = self.EVs[ev_id]
             r_n_history = ev_data['r_n_history']
             arrival = ev_data['arrival']
-            deadline = ev_data['deadline']
-
             arrival_int = int(arrival)
-
             charging_duration = len(r_n_history)
-
             charging_end = min(arrival_int + charging_duration, self.T)
-
             r[idx, arrival_int:charging_end] = r_n_history[:charging_end - arrival_int]
 
         total_load = self.total_load
