@@ -402,6 +402,7 @@ def run_realtime_optimal_decentralized_charging_from_file(base_load_file: str, e
     rt_odc.plot_results()
 
 if __name__ == "__main__":
+    pass
     # Uncomment the function you want to run:
 
     # Run Optimal Decentralized Charging (ODC) with demo data
