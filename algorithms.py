@@ -144,7 +144,7 @@ class OptimalDecentralizedCharging:
         plt.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("individual_ev_profiles.png", dpi=300)
+        plt.savefig("./outputs/individual_ev_profiles.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -159,7 +159,7 @@ class OptimalDecentralizedCharging:
         plt.legend(fontsize=10)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("load_profiles.png", dpi=300)
+        plt.savefig("./outputs/load_profiles.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -171,7 +171,7 @@ class OptimalDecentralizedCharging:
         plt.ylabel('Total Cost', fontsize=14)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("convergence_history.png", dpi=300)
+        plt.savefig("./outputs/convergence_history.png", dpi=300)
         plt.show()
 
 class AsynchronousOptimalDecentralizedCharging:
@@ -330,6 +330,7 @@ class AsynchronousOptimalDecentralizedCharging:
         plt.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
+        plt.savefig("./outputs/individual_ev_profiles.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -344,6 +345,7 @@ class AsynchronousOptimalDecentralizedCharging:
         plt.legend(fontsize=10)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
+        plt.savefig("./outputs/load_profile.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -355,6 +357,7 @@ class AsynchronousOptimalDecentralizedCharging:
         plt.ylabel('Total Cost', fontsize=14)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
+        plt.savefig("./outputs/convergence_history.png", dpi=300)
         plt.show()
 
 class RealTimeOptimalDecentralizedCharging:
@@ -397,7 +400,7 @@ class RealTimeOptimalDecentralizedCharging:
         }
         self.EVs[ev_id] = ev_data
         self.ev_id_list.append(ev_id)
-
+    
     def run(self):
         for t in range(self.T):
             self.t = t
@@ -420,7 +423,10 @@ class RealTimeOptimalDecentralizedCharging:
                     ev_data['r_nk'] = np.zeros(horizon_n)
                 else:
                     ev_data['r_nk'] = ev_data['r_nk'][1:]
-                    ev_data['r_nk'] = np.append(ev_data['r_nk'], 0.0)
+                    if len(ev_data['r_nk']) < horizon_n:
+                        ev_data['r_nk'] = np.append(ev_data['r_nk'], np.zeros(horizon_n - len(ev_data['r_nk'])))
+                    elif len(ev_data['r_nk']) > horizon_n:
+                        ev_data['r_nk'] = ev_data['r_nk'][:horizon_n]
 
             for k in range(self.K):
                 total_load = self.D[t:].copy()
@@ -429,7 +435,7 @@ class RealTimeOptimalDecentralizedCharging:
                     ev_data = self.EVs[ev_id]
                     d_n = ev_data['deadline']
                     horizon_n = d_n - t
-                    r_sum[:horizon_n] += ev_data['r_nk']
+                    r_sum[:horizon_n] += ev_data['r_nk'][:horizon_n]
                 total_load_k = total_load[:len(r_sum)] + r_sum
                 U_prime = total_load_k
                 pk = self.gamma / N_t * U_prime
@@ -439,7 +445,7 @@ class RealTimeOptimalDecentralizedCharging:
                     d_n = ev_data['deadline']
                     horizon_n = d_n - t
                     pk_n = pk[:horizon_n]
-                    r_nk = ev_data['r_nk']
+                    r_nk = ev_data['r_nk'][:horizon_n]
                     Rn_t = ev_data['R_t']
                     max_rate = ev_data['max_rate']
                     r_n = cp.Variable(horizon_n)
@@ -464,6 +470,7 @@ class RealTimeOptimalDecentralizedCharging:
 
             variance = np.var(self.total_load[:t + 1])
             self.convergence_history.append(variance)
+
 
     def plot_results(self):
         N = len(self.ev_id_list)
@@ -507,7 +514,7 @@ class RealTimeOptimalDecentralizedCharging:
         plt.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("individual_ev_profiles_rtodc.png", dpi=300)
+        plt.savefig("./outputs/individual_ev_profiles_rtodc.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -519,7 +526,7 @@ class RealTimeOptimalDecentralizedCharging:
         plt.ylabel('Total Load Variance', fontsize=14)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("convergence_history_rtodc.png", dpi=300)
+        plt.savefig("./outputs/convergence_history_rtodc.png", dpi=300)
         plt.show()
 
         plt.figure(figsize=(7, 5))
@@ -533,5 +540,5 @@ class RealTimeOptimalDecentralizedCharging:
         plt.legend(fontsize=10)
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig("total_load_profile_rtodc.png", dpi=300)
+        plt.savefig("./outputs/total_load_profile_rtodc.png", dpi=300)
         plt.show()

@@ -76,7 +76,7 @@ def run_optimal_decentralized_charging_from_file(base_load_file: str, ev_info_fi
     except FileNotFoundError:
         raise FileNotFoundError(f"Base load file '{base_load_file}' not found.")
 
-    required_columns = ['Time', 'Demand_weekends']
+    required_columns = ['Time', 'Demand_per_100_households']
     if not all(col in base_load_df.columns for col in required_columns):
         raise ValueError(f"Base load file must contain columns: {required_columns}")
 
@@ -103,7 +103,7 @@ def run_optimal_decentralized_charging_from_file(base_load_file: str, ev_info_fi
             f"Expected {expected_slots} time slots from 20:00 to 09:00, but found {actual_slots}."
         )
 
-    D = filtered_df['Demand_weekends'].values
+    D = filtered_df['Demand_per_100_households'].values
     T = len(D)
 
     try:
@@ -214,7 +214,7 @@ def run_asynchronous_optimal_decentralized_charging_from_file(base_load_file: st
     except FileNotFoundError:
         raise FileNotFoundError(f"Base load file '{base_load_file}' not found.")
 
-    required_columns = ['Time', 'Demand_weekends']
+    required_columns = ['Time', 'Demand_per_100_households']
     if not all(col in base_load_df.columns for col in required_columns):
         raise ValueError(f"Base load file must contain columns: {required_columns}")
 
@@ -242,7 +242,7 @@ def run_asynchronous_optimal_decentralized_charging_from_file(base_load_file: st
             f"Expected {expected_slots} time slots from 20:00 to 09:00, but found {actual_slots}."
         )
 
-    D = filtered_df['Demand_weekends'].values
+    D = filtered_df['Demand_per_100_households'].values
     T = len(D)
 
     try:
@@ -338,7 +338,7 @@ def run_realtime_optimal_decentralized_charging_from_file(base_load_file: str, e
     except FileNotFoundError:
         raise FileNotFoundError(f"Base load file '{base_load_file}' not found.")
 
-    required_columns = ['Time', 'Demand_weekends']
+    required_columns = ['Time', 'Demand_per_100_households']
     if not all(col in base_load_df.columns for col in required_columns):
         raise ValueError(f"Base load file must contain columns: {required_columns}")
 
@@ -365,7 +365,7 @@ def run_realtime_optimal_decentralized_charging_from_file(base_load_file: str, e
             f"Expected {expected_slots} time slots from 20:00 to 09:00, but found {actual_slots}."
         )
 
-    D = filtered_df['Demand_weekends'].values
+    D = filtered_df['Demand_per_100_households'].values
     T = len(D)
 
     beta = 2.0      
@@ -402,27 +402,28 @@ def run_realtime_optimal_decentralized_charging_from_file(base_load_file: str, e
     rt_odc.plot_results()
 
 if __name__ == "__main__":
+    # Comment the function you want to run
     pass
     # Uncomment the function you want to run:
 
-    # Run Optimal Decentralized Charging (ODC) with demo data
+    # # Run Optimal Decentralized Charging (ODC) with demo data
     # optimal_profiles_odc_demo = run_optimal_decentralized_charging_demo()
     # print("Optimal charging profiles (ODC demo):", optimal_profiles_odc_demo)
 
-    # Run Optimal Decentralized Charging (ODC) with data from files
-    # optimal_profiles_odc_file = run_optimal_decentralized_charging_from_file("base_load.xlsx", "ev_info.xlsx")
+    # # Run Optimal Decentralized Charging (ODC) with data from files
+    # optimal_profiles_odc_file = run_optimal_decentralized_charging_from_file("./data/base_load_delhi.xlsx", "./data/ev_info.xlsx")
     # print("Optimal charging profiles (ODC file):", optimal_profiles_odc_file)
 
-    # Run Asynchronous Optimal Decentralized Charging (AODC) with demo data
+    # # Run Asynchronous Optimal Decentralized Charging (AODC) with demo data
     # optimal_profiles_aodc_demo = run_asynchronous_optimal_decentralized_charging_demo()
     # print("Optimal charging profiles (AODC demo):", optimal_profiles_aodc_demo)
 
-    # Run Asynchronous Optimal Decentralized Charging (AODC) with data from files
-    # optimal_profiles_aodc_file = run_asynchronous_optimal_decentralized_charging_from_file("base_load.xlsx", "ev_info.xlsx")
+    # # Run Asynchronous Optimal Decentralized Charging (AODC) with data from files
+    # optimal_profiles_aodc_file = run_asynchronous_optimal_decentralized_charging_from_file("./data/base_load_delhi.xlsx", "./data/ev_info.xlsx")
     # print("Optimal charging profiles (AODC file):", optimal_profiles_aodc_file)
 
-    # Run Real-Time Optimal Decentralized Charging (RTODC) with demo data
+    # # Run Real-Time Optimal Decentralized Charging (RTODC) with demo data
     # run_realtime_optimal_decentralized_charging_demo()
 
-    # Run Real-Time Optimal Decentralized Charging (RTODC) with data from files
-    # run_realtime_optimal_decentralized_charging_from_file("base_load.xlsx", "ev_info.xlsx")
+    # # Run Real-Time Optimal Decentralized Charging (RTODC) with data from files
+    # run_realtime_optimal_decentralized_charging_from_file("./data/base_load_delhi.xlsx", "./data/ev_info.xlsx")
